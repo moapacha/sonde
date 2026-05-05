@@ -1,6 +1,6 @@
 # sonde
 
-![sonde running on norns](docs/screen.gif)
+![sonde running on norns](https://raw.githubusercontent.com/moapacha/sonde/main/docs/screen.gif)
 
 A norns + monome grid instrument. Satellites scan a 128×64 NASA Blue Marble earth. The terrain underneath each satellite drives sound events.
 
