@@ -2,13 +2,9 @@
 
 ![sonde running on norns](docs/screen.gif)
 
-> Captured from a real norns via `screen.export_screenshot()` (matron WS REPL, `clock.run` capture loop, gamma 0.55 to compensate for the OLED level mapping). Four satellites in flight; the user enters edit mode mid-clip (`ed-K2` suffix in the header). Static still: [docs/screen.png](docs/screen.png).
-
 A norns + monome grid instrument. Satellites scan a 128×64 NASA Blue Marble earth. The terrain underneath each satellite drives sound events.
 
 The grid is the satellite downlink, an LRPT-style waterfall. Every tick, each active satellite samples 16 cells perpendicular to its velocity. The brightest sample per column is pushed onto the bottom row, older lines scroll up.
-
-Inspired by [Down to Earth](https://yimingsun.site/posts/down-to-earth).
 
 ## Requirements
 
