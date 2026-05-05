@@ -4,7 +4,7 @@ A norns + monome grid instrument. Satellites scan a 128×64 NASA Blue Marble ear
 
 The grid is the satellite downlink, an LRPT-style waterfall. Every tick, each active satellite samples 16 cells perpendicular to its velocity. The brightest sample per column is pushed onto the bottom row, older lines scroll up.
 
-Inspired by the essay [Down to Earth](https://yimingsun.site/posts/down-to-earth).
+Inspired by [Down to Earth](https://yimingsun.site/posts/down-to-earth).
 
 ## Requirements
 
