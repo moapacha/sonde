@@ -128,13 +128,26 @@ local function compute_position_at(theta, sat)
 end
 
 local function make_sat(opts)
+  local angle = opts.angle or 0.0
   return {
-    angle       = opts.angle       or 0.0,
+    angle       = angle,
+    angle_seed  = angle,
     inclination = opts.inclination or 60,
     phase       = opts.phase       or 0,
     speed       = opts.speed       or 0.06,
     last_x = -1, last_y = -1, last_terr = -1, level = 0,
   }
+end
+
+local function set_active_sat(idx, silent)
+  idx = clamp(math.floor(idx or 1), 1, math.max(1, #sats))
+  active_sat = idx
+  if not silent then params:set("active_sat", idx, true) end
+  if sats[idx] then
+    params:set("incl",  sats[idx].inclination, true)
+    params:set("phase", sats[idx].phase,       true)
+    params:set("speed", sats[idx].speed,       true)
+  end
 end
 
 local function ensure_n_sats(n)
@@ -149,7 +162,7 @@ local function ensure_n_sats(n)
     }))
   end
   while #sats > n do table.remove(sats) end
-  if active_sat > #sats then active_sat = #sats end
+  if active_sat > #sats then set_active_sat(#sats) end
 end
 
 local function scanline_buf_init()
@@ -417,12 +430,7 @@ local function add_params()
   end)
   params:add_number("active_sat", "active sat", 1, N_MAX, 1)
   params:set_action("active_sat", function(v)
-    if v > #sats then v = #sats end
-    active_sat = v
-    -- reflect this sat's values into the editor params
-    params:set("incl",  sats[v].inclination, true)
-    params:set("phase", sats[v].phase, true)
-    params:set("speed", sats[v].speed, true)
+    set_active_sat(v, true)
   end)
 
   params:add_control("incl", "inclination",
@@ -554,19 +562,17 @@ end
 if g ~= nil then
   g.key = function(x, y, z)
     if z ~= 1 then return end
+    if x < 1 or x > SCAN_W or y < 1 or y > SCAN_H then return end
     if shift then
       -- cols 1..4 are sat editors. tap a not-yet-enabled column → auto-add.
       if x >= 1 and x <= N_MAX then
         if x > n_sats then params:set("n_sats", x) end
-        active_sat = x
         if y >= 1 and y <= 4 then
           sats[x].inclination = INCL_STEPS[y]
         elseif y >= 5 and y <= 8 then
           sats[x].phase = PHASE_STEPS[y - 4]
         end
-        params:set("incl",  sats[x].inclination, true)
-        params:set("phase", sats[x].phase,       true)
-        params:set("active_sat", x,              true)
+        set_active_sat(x)
       end
     else
       -- probe: per-cell throttle to prevent rapid-retap pile-up.
@@ -751,16 +757,14 @@ function key(n, z)
         table.remove(sats, active_sat)
         n_sats = n_sats - 1
         if active_sat > n_sats then active_sat = n_sats end
-        params:set("n_sats",     n_sats,     true)
-        params:set("active_sat", active_sat, true)
-        params:set("incl",  sats[active_sat].inclination, true)
-        params:set("phase", sats[active_sat].phase,       true)
+        params:set("n_sats", n_sats, true)
+        set_active_sat(active_sat)
         grid_redraw()
         redraw()
       end
       return
     end
-    for _, s in ipairs(sats) do s.angle = (s.k_angle_seed or 0) end
+    for _, s in ipairs(sats) do s.angle = (s.angle_seed or 0) end
     earth_rot = 0
     trail     = {}
     raster    = {}
