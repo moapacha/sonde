@@ -24,10 +24,22 @@
 --     waterfall stays visible, dimmed in the background.
 --
 -- each satellite has its own freq multiplier (unison / fifth / fourth-down
--- / major-third), so multiple sats stack into chords instead of duplicates.
+-- / major-third). only the active sat fires lead voices; the other (up to
+-- three) sats stay in the background in two ways:
+--   1. drone bed — one quiet sustained partial per non-active slot, locked
+--      to a stable root × that slot's mul, so the inactive sats together
+--      voice a soft major triad. amp follows the brightness of whatever
+--      cell each sat is currently over (loud over ice/mountain, near silent
+--      over deep ocean), pan follows that sat's longitude.
+--   2. modulation — every active-sat trigger is shaped by the non-active
+--      sats' positions: m1 (1st non-active sat's brightness) lifts the
+--      cell brightness fed to the lead voice; m2 (2nd's |latitude|/90)
+--      stretches the note duration; m3 (3rd's longitude/180) nudges pan.
+--      No new voices, no parallel triggers — just the lead inflected by
+--      where the rest of the constellation happens to be.
 --
 -- when two satellite ground tracks cross within ~3 cells of each other,
--- a chord-bloom intersect event fires.
+-- a chord-bloom intersect event fires (independent of the above).
 
 engine.name = "Sonde"
 
@@ -43,6 +55,20 @@ local active_sat   = 1
 -- per-sat freq multiplier so each satellite is harmonically distinct.
 -- chosen as consonant intervals: unison, fifth, fourth-below, major-third.
 local SAT_FREQ_MUL = {1.0, 1.5, 0.75, 1.25}
+-- drone bed pitch grid. each sat sustains a partial at
+-- DRONE_ROOT_HZ * SAT_FREQ_MUL[i] * DRONE_OCT_MUL[i]. The OCT_MUL spreads
+-- the four pitches across registers so they don't pile up in the bass:
+--   sat 1: 82.4 × 1.0  × 2 = 164.8 Hz (E3)
+--   sat 2: 82.4 × 1.5  × 1 = 123.6 Hz (B2  - P5 below E3)
+--   sat 3: 82.4 × 0.75 × 4 = 247.2 Hz (B3  - P5 above E3)
+--   sat 4: 82.4 × 1.25 × 2 = 206.0 Hz (G#3 - M3 above E3)
+-- Together that's an open-voicing E major triad (B - E - G# - B). The active
+-- sat's drone is held at a soft floor instead of muted, so switching active
+-- never drops a chord tone.
+local DRONE_ROOT_HZ   = 82.41
+local DRONE_OCT_MUL   = {2, 1, 4, 2}
+local DRONE_AMP_MAX   = 0.05    -- per non-active sat (× brightness)
+local DRONE_AMP_FLOOR = 0.018   -- per active sat, fixed soft floor
 
 local earth_rot       = 0.0
 local earth_rot_speed = 0.0015
@@ -228,14 +254,72 @@ local function dur_for(terrain)
   return 0.4
 end
 
+-- non-active sats inflect the active sat's lead voice (no new voices).
+-- Returns three normalized scalars derived from up to three non-active sats:
+--   m1 (0..1) = brightness under 1st non-active sat   -> boost lead amp
+--   m2 (0..1) = |latitude|/90 of 2nd non-active sat   -> stretch dur
+--   m3 (-1..1) = longitude/180 of 3rd non-active sat  -> nudge pan
+-- order is by slot index, skipping active_sat. With n_sats=1 all three are 0.
+local function compute_mods()
+  local m1, m2, m3 = 0, 0, 0
+  local seen = 0
+  for i = 1, #sats do
+    if i ~= active_sat then
+      seen = seen + 1
+      local s = sats[i]
+      if s.last_x >= 0 then
+        if seen == 1 then
+          m1 = earth.brightness_at(s.last_x, s.last_y)
+        elseif seen == 2 then
+          local lat = 90 - (s.last_y / earth.H) * 180
+          m2 = math.abs(lat) / 90
+        elseif seen == 3 then
+          local lon = (s.last_x / earth.W) * 360 - 180
+          m3 = clamp(lon / 180, -1, 1)
+          break
+        end
+      end
+    end
+  end
+  return m1, m2, m3
+end
+
+-- one engine.drone update per slot per tick. amp=0 for unallocated slots,
+-- DRONE_AMP_FLOOR for the active slot (so the chord stays whole), brightness-
+-- modulated for non-active slots. SC-side Lag.kr smooths step changes.
+local function update_drones()
+  for i = 1, N_MAX do
+    local s = sats[i]
+    local amp, pan
+    local freq = DRONE_ROOT_HZ * (SAT_FREQ_MUL[i] or 1.0)
+                                * (DRONE_OCT_MUL[i] or 1)
+    if (not s) or s.last_x < 0 then
+      amp, pan = 0, 0
+    else
+      local lon = (s.last_x / earth.W) * 360 - 180
+      pan = clamp(lon / 180, -1, 1)
+      if i == active_sat then
+        amp = DRONE_AMP_FLOOR
+      else
+        amp = earth.brightness_at(s.last_x, s.last_y) * DRONE_AMP_MAX
+      end
+    end
+    engine.drone(i, amp, freq, pan)
+  end
+end
+
 local function trigger_from_cell(cell, amp_scale, sat_idx)
   amp_scale = amp_scale or 1.0
   sat_idx   = sat_idx   or active_sat
   local elev = earth.elevation_at(cell.ex, cell.ey)
   local lon  = (cell.ex / earth.W) * 360 - 180
   local pan  = clamp(lon / 180, -1, 1)
-  engine.trigger(cell.terrain, cell.b * amp_scale, elev, pan,
-    dur_for(cell.terrain), SAT_FREQ_MUL[sat_idx] or 1.0)
+  local m1, m2, m3 = compute_mods()
+  local b   = clamp(cell.b * amp_scale * (1 + m1 * 0.5), 0, 1)
+  local dur = dur_for(cell.terrain) * (0.7 + m2 * 0.6)
+  local p   = clamp(pan + m3 * 0.3, -1, 1)
+  engine.trigger(cell.terrain, b, elev, p, dur,
+    SAT_FREQ_MUL[sat_idx] or 1.0)
 end
 
 -- ----- tick ----------------------------------------------------------------
@@ -252,6 +336,11 @@ local function tick()
   local line = compute_combined_scanline()
   scanline_buf_push(line)
 
+  -- update the persistent drone bed for all four slots. Done after the
+  -- scanline pass since that's what filled in sat.last_x/last_y for every
+  -- sat (including non-active ones that wouldn't otherwise be touched here).
+  update_drones()
+
   -- active satellite drives the OLED trail + raster strip
   local act = sats[active_sat]
   if act then
@@ -260,13 +349,19 @@ local function tick()
     local b = earth.brightness_at(act.last_x, act.last_y)
     table.insert(raster, 1, b)
     if #raster > RASTER_LEN then raster[#raster] = nil end
-    -- terrain trigger on active sat moving to new cell
+    -- terrain trigger on active sat moving to new cell, inflected by the
+    -- non-active sats via compute_mods (lift amp, stretch dur, nudge pan).
     if act.last_x ~= act.last_terr_x or act.last_y ~= act.last_terr_y then
       local terrain = earth.terrain_at(act.last_x, act.last_y)
       local elev    = earth.elevation_at(act.last_x, act.last_y)
       local lon     = (act.last_x / earth.W) * 360 - 180
-      engine.trigger(terrain, b, elev, clamp(lon / 180, -1, 1),
-        dur_for(terrain), SAT_FREQ_MUL[active_sat] or 1.0)
+      local pan     = clamp(lon / 180, -1, 1)
+      local m1, m2, m3 = compute_mods()
+      local b_mod   = clamp(b * (1 + m1 * 0.5), 0, 1)
+      local dur_mod = dur_for(terrain) * (0.7 + m2 * 0.6)
+      local pan_mod = clamp(pan + m3 * 0.3, -1, 1)
+      engine.trigger(terrain, b_mod, elev, pan_mod, dur_mod,
+        SAT_FREQ_MUL[active_sat] or 1.0)
       act.last_terr_x, act.last_terr_y = act.last_x, act.last_y
       act.level = b
     else

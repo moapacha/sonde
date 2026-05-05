@@ -66,7 +66,7 @@ Coastline pixels are dim grey. Ice cells brighter. Mountain cells brighter still
 
 ## Sound
 
-Five SynthDefs in `Engine_Sonde.sc`:
+Six SynthDefs in `Engine_Sonde.sc`:
 
 | Trigger | SynthDef | Character |
 | --- | --- | --- |
@@ -74,16 +74,19 @@ Five SynthDefs in `Engine_Sonde.sc`:
 | Land | `\sonde_land` | resonant pluck, short percussive |
 | Mountain | `\sonde_mountain` | FM spike with resonant peak |
 | Ice | `\sonde_ice` | bell partials, long sparkle decay |
+| Drone bed | `\sonde_drone` | sustained partial per satellite slot |
 | Intersect | `\sonde_intersect` | major-7 chord bloom, 4.5 s |
 
-Per-event mapping:
+The four terrain voices fire on the active satellite as it crosses cell boundaries. Pitches are snapped to E major pentatonic so a lead always sits on a scale tone of the drone bed regardless of how brightness/elevation push the base frequency.
 
 - Brightness drives amplitude and filter cutoff.
 - Elevation drives base frequency.
 - Longitude drives stereo pan.
-- Per-satellite freq multiplier (unison / fifth / fourth-below / major-third) so satellites passing the same terrain stack into chord intervals rather than duplicates.
+- Per-satellite freq multiplier (unison / fifth / fourth-below / major-third) transposes the same terrain by a different interval as the active sat changes.
 
-Every voice softclips before reaching the bus. The entire group runs through a single FreeVerb2 send at mix 0.28, room 0.62, damp 0.42.
+The other satellites stay in the background in two ways. Each holds a quiet sustained partial — sat 1 at E3, sat 2 at B2, sat 3 at B3, sat 4 at G#3, voicing an open E major triad. Brightness under each sat modulates its drone amp; longitude modulates its pan. The active sat keeps a soft floor on its own drone so the chord stays whole through any active-sat switch. On top of that, each terrain trigger is inflected by the non-active sats: the brightness under the first lifts the lead amp, the absolute latitude of the second stretches its duration, the longitude of the third nudges pan.
+
+Every voice softclips before reaching the bus. The entire group runs through a single FreeVerb2 send at mix 0.32, room 0.62, damp 0.42.
 
 ## Intersect events
 
@@ -97,7 +100,7 @@ These are intentionally rare. When you have a few satellites running and one of 
 sonde.lua             main script
 lib/earth.lua         terrain lookups + coastline cache
 lib/earth_data.lua    128×64 NASA Blue Marble downsampling
-lib/Engine_Sonde.sc   5 SynthDefs + global verb send
+lib/Engine_Sonde.sc   6 SynthDefs + global verb send
 ```
 
 The orbit math is simplified geometry on a unit sphere, not real Kepler. The aim is musical response.

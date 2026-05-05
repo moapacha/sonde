@@ -20,7 +20,7 @@
 // a light FreeVerb2 send so individual hits glue together.
 
 Engine_Sonde : CroneEngine {
-  var <synthGroup, <verbSynth, <fxBus;
+  var <synthGroup, <verbSynth, <fxBus, <drones;
 
   *new { arg context, doneCallback;
     ^super.new(context, doneCallback);
@@ -116,6 +116,28 @@ Engine_Sonde : CroneEngine {
       Out.ar(out, sig);
     }).add;
 
+    // persistent quiet harmonic bed: one per satellite slot. Each drone is
+    // a sine + low partials at a fixed root × the slot's freq multiplier, so
+    // sats 1..4 form a stable major triad (root / 5th / 4th-below / M3). The
+    // active sat's drone is silenced (amp=0) since it's playing leads. Amp,
+    // pan and freq are all Lag-smoothed so per-tick updates from Lua glide
+    // instead of clicking.
+    SynthDef(\sonde_drone, {
+      arg out=0, amp=0, freq=110, pan=0;
+      var sig, vib, smooth_amp, smooth_pan, smooth_freq;
+      smooth_amp  = Lag.kr(amp,  1.5);
+      smooth_pan  = Lag.kr(pan,  1.5);
+      smooth_freq = Lag.kr(freq, 0.8);
+      vib = SinOsc.kr(0.05 + Rand(0, 0.04), 0, 0.0025, 1);
+      sig = SinOsc.ar(smooth_freq * vib, 0, 0.5)
+          + SinOsc.ar(smooth_freq * 2.001 * vib, 0, 0.18)
+          + SinOsc.ar(smooth_freq * 3.005 * vib, 0, 0.06);
+      sig = LPF.ar(sig, 1500);
+      sig = sig * smooth_amp;
+      sig = sig.softclip * 0.7;
+      Out.ar(out, Pan2.ar(sig, smooth_pan, 1.0));
+    }).add;
+
     SynthDef(\sonde_intersect, {
       arg out=0, freq=220, amp=0.4, dur=4.5, pan=0;
       var sig, env, ratios, mix;
@@ -144,7 +166,19 @@ Engine_Sonde : CroneEngine {
     context.server.sync;
 
     verbSynth = Synth.tail(synthGroup, \sonde_verb,
-      [\in, fxBus.index, \out, 0, \mix, 0.28, \room, 0.62, \damp, 0.42]);
+      [\in, fxBus.index, \out, 0, \mix, 0.32, \room, 0.62, \damp, 0.42]);
+
+    // four persistent drone synths, head of group so they run through the
+    // shared verb. Lua keeps the active slot at a soft floor amp (so the
+    // chord never goes incomplete) and modulates the others by brightness.
+    drones = Array.fill(4, { |i|
+      Synth.head(synthGroup, \sonde_drone, [
+        \out, fxBus.index,
+        \amp, 0,
+        \freq, 82.41 * [1.0, 1.5, 0.75, 1.25][i] * [2, 1, 4, 2][i],
+        \pan, 0
+      ]);
+    });
 
     // trigger(terrain, brightness, elevation, pan, dur, sat_mul)
     //   terrain: 0=ocean, 1=land, 2=ice, 3=mountain
@@ -156,6 +190,7 @@ Engine_Sonde : CroneEngine {
       var dur        = msg[5];
       var sat_mul    = msg[6];
       var def, freq, amp;
+      var scale, semis, oct, within, best, bestd;
 
       if(terrain == 0, {
         def  = \sonde_ocean;
@@ -178,6 +213,22 @@ Engine_Sonde : CroneEngine {
         amp  = 0.18 + (brightness * 0.26);
       });
 
+      // pentatonic-major snap rooted at E2 (82.41 Hz) so leads always sit
+      // on a scale tone of the drone bed's voicing instead of drifting in
+      // continuous freq with terrain/elev/brightness. Done before sat_mul
+      // is applied inside the synthdef, so the M3/P5/P4 transposes still
+      // land on consonant intervals.
+      scale = #[0, 2, 4, 7, 9];
+      semis = 12 * (freq / 82.41).log2;
+      oct = (semis / 12).floor;
+      within = semis - (oct * 12);
+      best = scale[0]; bestd = 999;
+      scale.do { |s|
+        var d = (within - s).abs;
+        if(d < bestd, { bestd = d; best = s });
+      };
+      freq = 82.41 * (2 ** ((oct * 12 + best) / 12));
+
       Synth(def, [
         \out, fxBus.index,
         \freq, freq, \amp, amp, \dur, dur,
@@ -192,9 +243,20 @@ Engine_Sonde : CroneEngine {
         \freq, msg[1], \amp, msg[2], \pan, msg[3], \dur, 4.5
       ], target: synthGroup);
     });
+
+    // drone(idx, amp, freq, pan) - sets one of the four persistent drones.
+    // Lua calls this every tick for every slot; smoothing lives inside the
+    // synthdef so per-tick step changes glide audibly.
+    this.addCommand("drone", "ifff", { arg msg;
+      var idx = msg[1].asInteger;
+      if((idx >= 1) and: { idx <= 4 }, {
+        drones[idx - 1].set(\amp, msg[2], \freq, msg[3], \pan, msg[4]);
+      });
+    });
   }
 
   free {
+    drones.do({ |d| d.free });
     synthGroup.free;
     fxBus.free;
   }
