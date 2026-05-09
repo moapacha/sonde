@@ -11,21 +11,6 @@ The grid is the satellite downlink, an LRPT-style waterfall. Every tick, each ac
 - norns or norns shield
 - monome grid (16×8 recommended; without it you lose the waterfall and the orbit editor)
 
-## Install
-
-Copy `sonde/` into `~/dust/code/`:
-
-```
-~/dust/code/sonde/
-  sonde.lua
-  lib/earth.lua
-  lib/earth_data.lua
-  lib/Engine_Sonde.sc
-  README.md
-```
-
-Restart norns once after the first install so SuperCollider picks up `Engine_Sonde`.
-
 ## Controls
 
 | Input | Function |
@@ -94,15 +79,6 @@ The intersect SynthDef fires once when two ground tracks come within ~3 cells of
 
 These are intentionally rare. When you have a few satellites running and one of them happens to clip another, there is an oddly satisfying click of geometry, like watching a screensaver square land exactly in the corner of the display. The chord bloom is the audible version of that.
 
-## Files
-
-```
-sonde.lua             main script
-lib/earth.lua         terrain lookups + coastline cache
-lib/earth_data.lua    128×64 NASA Blue Marble downsampling
-lib/Engine_Sonde.sc   6 SynthDefs + global verb send
-```
-
 The orbit math is simplified geometry on a unit sphere, not real Kepler. The aim is musical response.
 
 ## Credits
@@ -111,4 +87,4 @@ Map data: NASA Visible Earth, Blue Marble (2002).
 
 ---
 
-Hope you enjoy this script and find it interesting. Suggestions and contributions are welcome. Open an issue or send updates.
+Hope you enjoy this script and find it interesting. Suggestions and contributions are always welcome.
